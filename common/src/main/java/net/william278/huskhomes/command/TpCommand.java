@@ -20,10 +20,10 @@
 package net.william278.huskhomes.command;
 
 import net.william278.huskhomes.HuskHomes;
-import net.william278.huskhomes.teleport.*;
+import net.william278.huskhomes.teleport.Teleport;
 import net.william278.huskhomes.user.OnlineUser;
+
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
@@ -32,64 +32,31 @@ public class TpCommand extends InGameCommand implements UserListTabCompletable {
     protected TpCommand(@NotNull HuskHomes plugin) {
         super(
                 List.of("tp"),
-                "<player> [target]",
-                plugin
-        );
-
-        addAdditionalPermissions(Map.of("other", true));
-        setOperatorCommand(true);
+                "<player>",
+                plugin);
     }
 
     @Override
-    public void execute(@NotNull OnlineUser onlineUser, @NotNull String[] args) {
+    public void execute(@NotNull OnlineUser executor, @NotNull String[] args) {
         final Optional<String> optionalTarget = parseStringArg(args, 0);
         if (optionalTarget.isEmpty()) {
             plugin.getLocales().getLocale("error_invalid_syntax", getUsage())
-                    .ifPresent(onlineUser::sendMessage);
+                    .ifPresent(executor::sendMessage);
             return;
         }
 
-        switch (args.length) {
-            case 1 -> {
-                this.execute(onlineUser, onlineUser, Target.username(args[0]), args);
-            }
-            default -> this.execute(onlineUser, Teleportable.username(args[0]), Target.username(args[1]), args);
-        }
-    }
-
-    // Execute a teleport
-    private void execute(@NotNull OnlineUser onlineUser, @NotNull Teleportable teleporter, @NotNull Target target,
-                         @NotNull String[] args) {
-        // Build and execute the teleport
-        final TeleportBuilder builder = Teleport.builder(plugin)
-                .teleporter(teleporter)
-                .target(target);
-
-        // Determine teleporter and target names, validate permissions
-        final @Nullable String targetName = target instanceof Username username ? username.name()
-                : target instanceof OnlineUser online ? online.getName() : null;
-        if (onlineUser.equals(teleporter)) {
-            if (teleporter.getUsername().equalsIgnoreCase(targetName)) {
-                plugin.getLocales().getLocale("error_cannot_teleport_self")
-                        .ifPresent(onlineUser::sendMessage);
-                return;
-            }
-        } else if (!onlineUser.hasPermission(getPermission("other"))) {
-            plugin.getLocales().getLocale("error_no_permission")
-                    .ifPresent(onlineUser::sendMessage);
-            return;
-        }
-        builder.executor(onlineUser);
-
-        // Execute teleport
-        if (!builder.buildAndComplete(true, args)) {
+        // Ensure the user does not send a request to themselves
+        final String target = optionalTarget.get();
+        if (target.equalsIgnoreCase(executor.getName())) {
+            plugin.getLocales().getLocale("error_teleport_request_self")
+                    .ifPresent(executor::sendMessage);
             return;
         }
 
-        // Display the teleport completion message
-        plugin.getLocales().getLocale("teleporting_other_complete",
-                        teleporter.getUsername(), Objects.requireNonNull(targetName))
-                .ifPresent(onlineUser::sendMessage);
+        Teleport.builder(plugin)
+                 .teleporter(executor)
+                 .target(target)
+                 .buildAndComplete(true, target);
     }
 
 }
