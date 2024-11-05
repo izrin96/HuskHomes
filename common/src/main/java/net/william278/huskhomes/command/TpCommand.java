@@ -19,74 +19,46 @@
 
 package net.william278.huskhomes.command;
 
-import com.google.common.collect.Lists;
 import net.william278.huskhomes.HuskHomes;
-import net.william278.huskhomes.position.Position;
 import net.william278.huskhomes.teleport.*;
-import net.william278.huskhomes.user.CommandUser;
 import net.william278.huskhomes.user.OnlineUser;
-import net.william278.huskhomes.user.User;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
-public class TpCommand extends Command implements TabCompletable {
+public class TpCommand extends InGameCommand implements UserListTabCompletable {
 
     protected TpCommand(@NotNull HuskHomes plugin) {
         super(
-                List.of("tp", "tpo"),
-                "[<player|position>] [target]",
+                List.of("tp"),
+                "<player> [target]",
                 plugin
         );
 
-        addAdditionalPermissions(Map.of("coordinates", true, "other", true));
+        addAdditionalPermissions(Map.of("other", true));
         setOperatorCommand(true);
     }
 
     @Override
-    public void execute(@NotNull CommandUser executor, @NotNull String[] args) {
+    public void execute(@NotNull OnlineUser onlineUser, @NotNull String[] args) {
+        final Optional<String> optionalTarget = parseStringArg(args, 0);
+        if (optionalTarget.isEmpty()) {
+            plugin.getLocales().getLocale("error_invalid_syntax", getUsage())
+                    .ifPresent(onlineUser::sendMessage);
+            return;
+        }
+
         switch (args.length) {
             case 1 -> {
-                if (!(executor instanceof OnlineUser user)) {
-                    plugin.getLocales().getLocale("error_in_game_only")
-                            .ifPresent(executor::sendMessage);
-                    return;
-                }
-                this.execute(executor, user, Target.username(args[0]), args);
+                this.execute(onlineUser, onlineUser, Target.username(args[0]), args);
             }
-            case 2 -> this.execute(executor, Teleportable.username(args[0]), Target.username(args[1]), args);
-            default -> {
-                final Position basePosition = getBasePosition(executor);
-                Optional<Position> target = executor.hasPermission(getPermission("coordinates"))
-                        ? parsePositionArgs(basePosition, args, 0) : Optional.empty();
-                if (target.isPresent()) {
-                    if (!(executor instanceof OnlineUser user)) {
-                        plugin.getLocales().getLocale("error_in_game_only")
-                                .ifPresent(executor::sendMessage);
-                        return;
-                    }
-
-                    this.execute(executor, user, target.get(), args);
-                    return;
-                }
-
-                target = executor.hasPermission(getPermission("coordinates"))
-                        ? parsePositionArgs(basePosition, args, 1) : Optional.empty();
-                if (target.isPresent() && args.length >= 1) {
-                    this.execute(executor, Teleportable.username(args[0]), target.get(), args);
-                    return;
-                }
-
-                plugin.getLocales().getLocale("error_invalid_syntax", getUsage())
-                        .ifPresent(executor::sendMessage);
-            }
+            default -> this.execute(onlineUser, Teleportable.username(args[0]), Target.username(args[1]), args);
         }
     }
 
     // Execute a teleport
-    private void execute(@NotNull CommandUser executor, @NotNull Teleportable teleporter, @NotNull Target target,
+    private void execute(@NotNull OnlineUser onlineUser, @NotNull Teleportable teleporter, @NotNull Target target,
                          @NotNull String[] args) {
         // Build and execute the teleport
         final TeleportBuilder builder = Teleport.builder(plugin)
@@ -96,116 +68,28 @@ public class TpCommand extends Command implements TabCompletable {
         // Determine teleporter and target names, validate permissions
         final @Nullable String targetName = target instanceof Username username ? username.name()
                 : target instanceof OnlineUser online ? online.getName() : null;
-        if (executor instanceof OnlineUser online) {
-            if (online.equals(teleporter)) {
-                if (teleporter.getUsername().equalsIgnoreCase(targetName)) {
-                    plugin.getLocales().getLocale("error_cannot_teleport_self")
-                            .ifPresent(executor::sendMessage);
-                    return;
-                }
-            } else if (!executor.hasPermission(getPermission("other"))) {
-                plugin.getLocales().getLocale("error_no_permission")
-                        .ifPresent(executor::sendMessage);
+        if (onlineUser.equals(teleporter)) {
+            if (teleporter.getUsername().equalsIgnoreCase(targetName)) {
+                plugin.getLocales().getLocale("error_cannot_teleport_self")
+                        .ifPresent(onlineUser::sendMessage);
                 return;
             }
-            builder.executor(online);
+        } else if (!onlineUser.hasPermission(getPermission("other"))) {
+            plugin.getLocales().getLocale("error_no_permission")
+                    .ifPresent(onlineUser::sendMessage);
+            return;
         }
+        builder.executor(onlineUser);
 
         // Execute teleport
-        if (!builder.buildAndComplete(false, args)) {
+        if (!builder.buildAndComplete(true, args)) {
             return;
         }
 
         // Display the teleport completion message
-        if (target instanceof Position position) {
-            plugin.getLocales().getLocale("teleporting_other_complete_position", teleporter.getUsername(),
-                            Integer.toString((int) position.getX()), Integer.toString((int) position.getY()),
-                            Integer.toString((int) position.getZ()))
-                    .ifPresent(executor::sendMessage);
-            return;
-        }
         plugin.getLocales().getLocale("teleporting_other_complete",
                         teleporter.getUsername(), Objects.requireNonNull(targetName))
-                .ifPresent(executor::sendMessage);
-    }
-
-    @Override
-    @NotNull
-    public final List<String> suggest(@NotNull CommandUser user, @NotNull String[] args) {
-        final Position relative = getBasePosition(user);
-        final boolean serveCoordinateCompletions = user.hasPermission(getPermission("coordinates"));
-        switch (args.length) {
-            case 0, 1 -> {
-                final ArrayList<String> completions = Lists.newArrayList(serveCoordinateCompletions
-                        ? List.of("~", "~ ~", "~ ~ ~",
-                        Integer.toString((int) relative.getX()),
-                        ((int) relative.getX() + " " + (int) relative.getY()),
-                        ((int) relative.getX() + " " + (int) relative.getY() + " " + (int) relative.getZ()))
-                        : List.of());
-                plugin.getUserList().stream().map(User::getName).forEach(completions::add);
-                return completions.stream()
-                        .filter(s -> s.toLowerCase().startsWith(args.length == 1 ? args[0].toLowerCase() : ""))
-                        .sorted().collect(Collectors.toList());
-            }
-            case 2 -> {
-                final ArrayList<String> completions = new ArrayList<>();
-                if (isCoordinate(args, 0)) {
-                    completions.addAll(List.of("~", Integer.toString((int) relative.getY())));
-                    completions.addAll(List.of("~ ~", (int) relative.getY() + " " + (int) relative.getZ()));
-                } else {
-                    completions.addAll(serveCoordinateCompletions
-                            ? List.of("~", "~ ~", "~ ~ ~",
-                            Integer.toString((int) relative.getX()),
-                            ((int) relative.getX() + " " + (int) relative.getY()),
-                            ((int) relative.getX() + " " + (int) relative.getY() + " " + (int) relative.getZ()))
-                            : List.of()
-                    );
-                    if (user.hasPermission(getPermission("other"))) {
-                        plugin.getUserList().stream().map(User::getName).forEach(completions::add);
-                    }
-                }
-                return completions.stream()
-                        .filter(s -> s.toLowerCase().startsWith(args[1].toLowerCase()))
-                        .sorted().collect(Collectors.toList());
-            }
-            case 3 -> {
-                final ArrayList<String> completions = new ArrayList<>();
-                if (isCoordinate(args, 1) && isCoordinate(args, 2)) {
-                    if (!serveCoordinateCompletions) {
-                        return completions;
-                    }
-                    completions.addAll(List.of("~", Integer.toString((int) relative.getZ())));
-                } else if (isCoordinate(args, 1)) {
-                    if (!serveCoordinateCompletions) {
-                        return completions;
-                    }
-                    completions.addAll(List.of("~", Integer.toString((int) relative.getY())));
-                    completions.addAll(List.of("~ ~", (int) relative.getY() + " " + (int) relative.getZ()));
-                }
-                return completions.stream()
-                        .filter(s -> s.toLowerCase().startsWith(args[2].toLowerCase()))
-                        .sorted().collect(Collectors.toList());
-            }
-            case 4 -> {
-                final ArrayList<String> completions = new ArrayList<>();
-                if (isCoordinate(args, 1) && isCoordinate(args, 2) && !isCoordinate(args, 0)) {
-                    if (!serveCoordinateCompletions) {
-                        return completions;
-                    }
-                    completions.addAll(List.of("~", Integer.toString((int) relative.getZ())));
-                }
-                return completions.stream()
-                        .filter(s -> s.toLowerCase().startsWith(args[3].toLowerCase()))
-                        .sorted().collect(Collectors.toList());
-            }
-            default -> {
-                return List.of();
-            }
-        }
-    }
-
-    private boolean isCoordinate(@NotNull String[] args, int index) {
-        return parseCoordinateArg(args, index, 0d).isPresent();
+                .ifPresent(onlineUser::sendMessage);
     }
 
 }

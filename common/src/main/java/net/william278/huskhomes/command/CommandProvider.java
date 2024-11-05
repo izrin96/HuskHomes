@@ -99,6 +99,7 @@ public interface CommandProvider {
         commands.add(new DelWarpCommand(getPlugin()));
         commands.add(new EditWarpCommand(getPlugin()));
         commands.add(new TpCommand(getPlugin()));
+        commands.add(new TpoCommand(getPlugin()));
         commands.add(new TpHereCommand(getPlugin()));
         commands.add(new TpRequestCommand(getPlugin(), TeleportRequest.Type.TPA));
         commands.add(new TpRequestCommand(getPlugin(), TeleportRequest.Type.TPA_HERE));
